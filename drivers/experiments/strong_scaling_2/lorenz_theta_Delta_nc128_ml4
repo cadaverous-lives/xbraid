@@ -1,0 +1,54 @@
+Using Delta correction
+Using theta method
+
+  Braid: Begin simulation, 4098 time steps
+  Braid: || r_0 || = 1.996917e+01, conv factor = 1.00e+00, wall time = 1.01e-02
+  Braid: || r_1 || = 6.233034e+00, conv factor = 3.12e-01, wall time = 1.57e-02
+  Braid: || r_2 || = 1.741747e+01, conv factor = 2.79e+00, wall time = 2.13e-02
+  Braid: || r_3 || = 1.590812e+01, conv factor = 9.13e-01, wall time = 2.69e-02
+  Braid: || r_4 || = 4.365743e+00, conv factor = 2.74e-01, wall time = 3.24e-02
+  Braid: || r_5 || = 6.174805e+00, conv factor = 1.41e+00, wall time = 3.80e-02
+  Braid: || r_6 || = 5.191863e+00, conv factor = 8.41e-01, wall time = 4.36e-02
+  Braid: || r_7 || = 2.696157e+00, conv factor = 5.19e-01, wall time = 4.91e-02
+  Braid: || r_8 || = 3.233418e-02, conv factor = 1.20e-02, wall time = 5.47e-02
+  Braid: || r_9 || = 3.606660e-05, conv factor = 1.12e-03, wall time = 6.03e-02
+  Braid: || r_10 || = 3.574592e-08, conv factor = 9.91e-04, wall time = 6.58e-02
+  Braid: || r_11 || = 2.235352e-10, conv factor = 6.25e-03, wall time = 7.14e-02
+
+  Braid Solver Stats:
+  start time = 0.000000e+00
+  stop time  = 1.023371e+01
+  time steps = 4098
+
+  use seq soln?         = 0
+  storage               = -1
+
+  max iterations        = 25
+  iterations            = 12
+
+  residual norm         = 2.235352e-10
+  stopping tolerance    = 1.000000e-08
+  use relative tol?     = 0
+                                          --> 2-norm TemporalNorm 
+
+  use fmg?              = 0
+  access_level          = 1
+  print_level           = 2
+
+  max number of levels  = 4
+  min coarse            = 2
+  number of levels      = 4
+  skip down cycle       = 0
+  periodic              = 0
+  relax_only_cg         = 0
+  finalFCRelax          = 0
+  number of refinements = 0
+
+  level   time-pts   cfactor   nrelax   Crelax Wt
+      0      4098        4        0        1.00
+      1      1024        4        1        1.00
+      2       256        4        1        1.00
+      3        64  
+
+  wall time = 0.080924
+
