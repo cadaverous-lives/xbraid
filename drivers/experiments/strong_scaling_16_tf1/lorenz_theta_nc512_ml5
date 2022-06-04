@@ -106,6 +106,50 @@
 0.200012
 0.2
 0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
+0.203125
+0.200012
+0.2
+0.2
 Using theta method
 0.203125
 0.200012
@@ -113,22 +157,27 @@ Using theta method
 0.2
 
   Braid: Begin simulation, 4096 time steps
-  Braid: || r_0 || = 1.996946e+01, conv factor = 1.00e+00, wall time = 2.49e-02
-  Braid: || r_1 || = -nan, conv factor = -nan, wall time = 2.74e-02
-  Braid: Iterations diverged.
+  Braid: || r_0 || = 1.955197e+01, conv factor = 1.00e+00, wall time = 4.67e-02
+  Braid: || r_1 || = 2.154037e+00, conv factor = 1.10e-01, wall time = 4.92e-02
+  Braid: || r_2 || = 1.986627e+00, conv factor = 9.22e-01, wall time = 5.10e-02
+  Braid: || r_3 || = 7.432928e-01, conv factor = 3.74e-01, wall time = 5.29e-02
+  Braid: || r_4 || = 2.176819e-01, conv factor = 2.93e-01, wall time = 5.47e-02
+  Braid: || r_5 || = 9.514112e-06, conv factor = 4.37e-05, wall time = 5.65e-02
+  Braid: || r_6 || = 9.828723e-08, conv factor = 1.03e-02, wall time = 5.83e-02
+  Braid: || r_7 || = 2.163048e-12, conv factor = 2.20e-05, wall time = 6.03e-02
 
   Braid Solver Stats:
   start time = 0.000000e+00
-  stop time  = 1.023371e+01
+  stop time  = 2.558428e+00
   time steps = 4096
 
   use seq soln?         = 0
   storage               = -1
 
   max iterations        = 25
-  iterations            = 2
+  iterations            = 8
 
-  residual norm         = -nan
+  residual norm         = 2.163048e-12
   stopping tolerance    = 1.000000e-08
   use relative tol?     = 0
                                           --> 2-norm TemporalNorm 
@@ -153,52 +202,8 @@ Using theta method
       3        64        4        1        1.00
       4        16  
 
-  wall time = 0.082006
+  wall time = 0.072575
 
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
-0.203125
-0.200012
-0.2
-0.2
 0.203125
 0.200012
 0.2

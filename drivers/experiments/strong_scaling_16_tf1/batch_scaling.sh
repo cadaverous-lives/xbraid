@@ -21,7 +21,7 @@ ncores="1 2 4 8 16 32 64 128 256 512 1024"
 mlevels="5"
 
 # fixed arguments
-fargs="-tf 4 -nt 4096 -cf0 4 -cf 4 -theta -nu 1 -niters 1"
+fargs="-tf 1 -nt 4096 -cf0 4 -cf 4 -theta -nu 1 -niters 1"
 
 # path to executable
 ex="../../drive-lorenz-Delta"

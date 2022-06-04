@@ -4,7 +4,7 @@ Using theta method
 
   Braid Solver Stats:
   start time = 0.000000e+00
-  stop time  = 1.023371e+01
+  stop time  = 2.558428e+00
   time steps = 4096
 
   use seq soln?         = 0
@@ -34,5 +34,5 @@ Using theta method
   level   time-pts   cfactor   nrelax   Crelax Wt
       0      4096  
 
-  wall time = 0.048982
+  wall time = 0.070854
 
