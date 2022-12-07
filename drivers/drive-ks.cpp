@@ -542,12 +542,14 @@ int MyBraidApp::Step(braid_Vector u_,
    {
       u->guess = VEC::Zero(stages * nx);
    }
+   // u->guess -= u->guess;
 
    VEC utmp(u->state);
 
    if (!useDelta 
       || lvl_eff < DeltaLevel 
-      || (coarseGrid && !cglv)) // default behavior, no Psi propagation
+      || (coarseGrid && !cglv)
+      || (calling_fnc == braid_ASCaller_FCRelax && cglv) ) // default behavior, no Psi propagation
    {
       utmp = baseStep(u->state, u->guess, dt, pstatus);
       if (f)
@@ -559,6 +561,7 @@ int MyBraidApp::Step(braid_Vector u_,
          }
       }
       u->state = utmp;
+      u->Psi = ustop->Psi;
       if (!useGuess)
       {
          u->guess = ustop->guess; // the old value
@@ -641,6 +644,7 @@ int MyBraidApp::Residual(braid_Vector u_,
          getGuessTheta2(guess, r->state, u->state, disc, dt);
       }
    }
+   guess -= guess;
 
    bool up = (calling_fnc == braid_ASCaller_Residual);
 
@@ -971,7 +975,7 @@ int main(int argc, char *argv[])
    int newton_iters = 3;
    bool useFMG = false;
    bool useDelta = false;
-   int DeltaLvl = 1;
+   int DeltaLvl = 0;
    int DeltaRank = 1;
    bool useTheta = false;
    bool doRefine = false;
@@ -1258,7 +1262,10 @@ int main(int argc, char *argv[])
 
    // Initialize Braid Core Object and set some solver options
    BraidCore core(MPI_COMM_WORLD, &app);
-   core.SetResidual();
+   if (useDelta)
+   {
+      core.SetResidual();
+   }
    if (useFMG)
    {
       core.SetFMG();
@@ -1281,7 +1288,6 @@ int main(int argc, char *argv[])
    core.SetRefine(doRefine);
    core.SetMaxRefinements(max_levels - 2);
    core.SetTPointsCutoff(nt);
-   core.SetSkip(1);
    core.SetStorage(0);
    core.SetTemporalNorm(2);
    core.SetAccessLevel(output || getInit);

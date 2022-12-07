@@ -1,0 +1,6 @@
+This machine is ruby309
+My jobid is 9470915
+Timestamp START: Wed Aug 24 13:26:11 PDT 2022
+srun -N 1 -n 1 -o ./ks_ml1 ../../../drive-ks -tf 4 -nt 8192 -nx 256 -cf0 16 -ml 1
+Done
+Timestamp END: Wed Aug 24 13:26:26 PDT 2022

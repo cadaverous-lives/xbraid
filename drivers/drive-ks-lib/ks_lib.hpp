@@ -48,7 +48,7 @@ public:
 SPMAT circulant_from_stencil(std::vector<double> stencil, int n);
 SPMAT circulant_from_stencil(ArrayXd stencil, int n);
 VEC smoothed_noise(int nx, int width);
-VEC FourierMode(int wavenum, const int nx, const double len);
+VEC FourierMode(int index, int nx, double len);
 void setFourierMatrix(MAT &A, const int nx, const double len);
 void GramSchmidt(MAT& A);
 double inf_norm(const VEC &u);

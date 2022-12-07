@@ -105,22 +105,34 @@ SPMAT circulant_from_stencil(ArrayXd stencil, int n)
     return circulant_from_stencil(Stencil(stencil.data(), stencil.data() + stencil.size()), n);
 }
 
-VEC FourierMode(int wavenum, int nx, double len)
+VEC FourierMode(int index, int nx, double len)
 {
-    if (wavenum == 0)
+    if (index == 0)
     {
         return VEC::Ones(nx) / (double)nx;
     }
+    int wavenum;
+
     VEC x = VEC::LinSpaced(nx, 0., len - len / nx);
-    x *= 2 * wavenum * M_PI / len;
-    return Eigen::sin(x.array());
+    x *= 2 * M_PI / len;
+
+    if (index % 2 == 0)
+    {
+        wavenum = index / 2;
+        return Eigen::sin(wavenum * x.array());
+    }
+    else
+    {
+        wavenum = (index + 1) / 2;
+        return Eigen::cos(wavenum * x.array());
+    }
 }
 
 void setFourierMatrix(MAT &A, const int nx, const double len)
 {
     for (Index j = 0; j < A.cols(); j++)
     {
-        A.col(j) = FourierMode(j + 1, nx, len);
+        A.col(j) = FourierMode(j, nx, len);
         A.col(j).normalize();
     }
 }
@@ -227,33 +239,33 @@ VEC theta2(const VEC &u, VEC &guess, const KSDiscretization &disc, double dt, do
     {
         // here we assume that the columns of P_tan contain tangent vectors to propagate
         // and we propagate them implicitly without forming the full lin. of Phi.
-        // VEC tmp(stages * nx); // just used to store solution vectors
-        // VEC rhs(stages * nx);
-        MAT tmp(stages * nx, P_tan->cols());
-        MAT rhs(stages * nx, P_tan->cols());
+        VEC tmp(stages * nx); // just used to store solution vectors
+        VEC rhs(stages * nx);
+        // MAT tmp(stages * nx, P_tan->cols());
+        // MAT rhs(stages * nx, P_tan->cols());
         SPMAT K1 = dt * disc.f_ks_du(u1);
         SPMAT K2 = dt * disc.f_ks_du(u2);
 
         _setup_nxnbmat(A, {{eye - a11 * K1, -a12 * K1}, {-a21 * K2, eye - a22 * K2}}, nx);
         solver.compute(A); // does the factorization
 
-        // solve for P_tan one column at a time
-        // for (Index j = 0; j < P_tan->cols(); j++)
-        // {
-        //     rhs << K1 * P_tan->col(j), K2 * P_tan->col(j);
-        //     tmp = solver.solve(rhs);
-        //     P_tan->col(j) += (tmp.head(nx) + tmp.tail(nx)) / 2.;
-        // }
-        rhs << K1 * (*P_tan), K2 * (*P_tan);
-        tmp = solver.solve(rhs);
-        *P_tan += (tmp.topRows(nx) + tmp.bottomRows(nx)) / 2.;
+	// solve for P_tan one column at a time
+        for (Index j = 0; j < P_tan->cols(); j++)
+        {
+	   rhs << K1 * P_tan->col(j), K2 * P_tan->col(j);
+	   tmp = solver.solve(rhs);
+	   P_tan->col(j) += (tmp.head(nx) + tmp.tail(nx)) / 2.;
+        }
+        // rhs << K1 * (*P_tan), K2 * (*P_tan);
+        // tmp = solver.solve(rhs);
+        // *P_tan += (tmp.topRows(nx) + tmp.bottomRows(nx)) / 2.;
     }
 
     // std::cout << "guess accuracy: " << (k - guess).norm() << '\n';
     guess = k;
     u2 = u + (k.head(nx) + k.tail(nx)) / 2;
     if (err_est)
-    {
+    {   
         // use embedded 1st order method to estimate relative local discretization error
         u1 = u + k.head(nx);
         *err_est = (u1 - u2).lpNorm<Eigen::Infinity>()/u2.lpNorm<Eigen::Infinity>();
