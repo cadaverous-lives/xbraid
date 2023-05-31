@@ -5,6 +5,7 @@ using BenchmarkTools, Plots, LaTeXStrings
 using Statistics: mean
 using Random: seed!
 using LinearAlgebra: norm
+using ArgParse
 
 include("XBraid.jl")
 using .XBraid
@@ -114,9 +115,10 @@ end
 """
 compute the forcing term
 """
-function kolmogorovForce!(app::KFlowApp, u, Δt; μ = .5)
+function kolmogorovForce!(app::KFlowApp, u, Δt; μ = 1.0)
 	k = app.k_num
-	# Fₖ(x, y) = (0, sin(ky))
+	
+	# Fₖ(x, y) = (0, μsin(ky))
 	@views @. u[:, :, 1] += μ * Δt * sin(k * app.coords[:, :, 2])
 	return u
 end
@@ -459,3 +461,61 @@ function checkOrder(μ=0.)
     p = plot(ntimes[1:end-1], errs; xscale=:log10, yscale=:log10, label="error")
     return p, solutions
 end
+
+# parse command line arguments
+s = ArgParseSettings()
+@add_arg_table s begin
+	"--ml"
+	help = "number of levels"
+	arg_type = Int
+	default = 1
+	"--cf"
+	help = "coarsening factor"
+	arg_type = Int
+	default = 4
+	"--maxiter"
+	help = "max number of iterations"
+	arg_type = Int
+	default = 20
+	"--tstop"
+	help = "final time"
+	arg_type = Float64
+	default = 20.0
+	"--ntime"
+	help = "number of time steps"
+	arg_type = Int
+	default = 512
+	"--deltaRank"
+	help = "number of Lyapunov vectors"
+	arg_type = Int
+	default = 0
+	"--useTheta"
+	help = "use theta method"
+	action = :store_true
+	"--relaxLyap"
+	help = "perform relaxation for Lyapunov vectors"
+	action = :store_true
+	"--savegif"
+	help = "save a gif of the solution"
+	action = :store_true
+	"--k"
+	help = "wavenumber of Kolmogorov forcing"
+	arg_type = Int
+	default = 4
+	"--reynolds"
+	help = "Reynolds number"
+	arg_type = Float64
+	default = 1600.0
+end
+
+args = parse_args(ARGS, s)
+app, core = main(; ml=args["ml"], cf=args["cf"], maxiter=args["maxiter"], tstop=args["tstop"], ntime=args["ntime"], deltaRank=args["deltaRank"], useTheta=args["useTheta"], relaxLyap=args["relaxLyap"], savegif=args["savegif"], k=args["k"], ℜ=args["reynolds"])
+# save residuals to file
+# if MPI.Comm_rank(comm) == 0
+# 	residuals = XBraid.GetRNorms(core)
+# 	open("kflow_residuals_ml$(args["ml"]).txt", "w") do io
+# 		for r in residuals
+# 			println(io, r)
+# 		end
+# 	end
+# end

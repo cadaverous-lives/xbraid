@@ -36,7 +36,8 @@ function BurgerApp(x::Vector{<:Real}, κ::Frequencies{<:Real}, μ::Real, cf::Int
 end
 
 # system parameters (globally scoped)
-const lengthScale = 2π
+# const lengthScale = 2π
+const lengthScale = 64
 const nₓ = 1024
 const Δx = lengthScale / nₓ
 
@@ -99,25 +100,13 @@ function semi_lagrangian!(burger::BurgerApp, y, v, Δt)
     return y
 end
 
-function diffuse_beuler!(burger::BurgerApp, y, Δt::Float64; init_guess=nothing)
-    y_tmp = get_tmp(burger.y_d, y)
-    y_tmp .= y
-
-    if init_guess !== nothing
-        y .= init_guess
-    end
-
-    cg!(y, euler_mat(Δt), y_tmp)
-    return y
-end
-
-function diffuse_fft!(burger::BurgerApp, y::AbstractArray, Δt::Real; init_guess=nothing)
+function diffuse_fft!(burger::BurgerApp, y::AbstractArray, Δt::Real)
     P̂ = burger.P̂
     κ = burger.κ
     # y .= real(P̂ \ (exp.(Δt*(κ.^2 - κ.^4))))
     ŷ = P̂ * y
-    @. ŷ *= exp(-burger.μ * Δt * κ^2) # standard diffusion
-    # @. ŷ *= exp(Δt*(κ^2 - κ^4)) # KS-equation operator
+    # @. ŷ *= exp(-burger.μ * Δt * κ^2) # standard diffusion
+    @. ŷ *= exp(Δt*(κ^2 - κ^4)) # KS-equation operator
     y .= real(P̂ \ ŷ)
     return y
 end
@@ -138,11 +127,11 @@ function fillDualArray!(y::Vector{ForwardDiff.Dual{T,V,P}}, vs, ps) where {T,V,P
 end
 
 # this enables ForwardDiff through the FFT where it normally doesn't work
-function diffuse_fft!(burger::BurgerApp, y::Vector{ForwardDiff.Dual{T,V,P}}, Δt::Real; μ=1e-4) where {T, V, P}
+function diffuse_fft!(burger::BurgerApp, y::Vector{ForwardDiff.Dual{T,V,P}}, Δt::Real) where {T, V, P}
     vs = ForwardDiff.value.(y)
     ps = extractPartials(y)
-    diffuse_fft!(burger, vs, Δt; μ=μ)
-    map(eachcol(ps)) do p diffuse_fft!(burger, p, Δt; μ=μ) end
+    diffuse_fft!(burger, vs, Δt)
+    map(eachcol(ps)) do p diffuse_fft!(burger, p, Δt) end
     fillDualArray!(y, vs, ps)
     return y
 end
@@ -174,13 +163,14 @@ end
 
 function base_step!(burger::BurgerApp, u, Δt::Float64; init_guess=nothing)
     u_mid = deepcopy(u)
-    semi_lagrangian!(burger, u_mid, u, Δt/2)
-    semi_lagrangian!(burger, u, u_mid, Δt) # u(∇ u)
+    # semi_lagrangian!(burger, u_mid, u, Δt/2)
+    # semi_lagrangian!(burger, u, u_mid, Δt) # u(∇ u)
     # semi_lagrangian!(burger, u, sin.(burger.x), Δt) # ∇ u
-    # semi_lagrangian!(burger, u, u, Δt) # u(∇ u)
-    if burger.μ > 0.
-        diffuse_fft!(burger, u, Δt) # Δu
-    end
+    semi_lagrangian!(burger, u, u, Δt) # u(∇ u)
+    diffuse_fft!(burger, u, Δt) # Δu
+    # if burger.μ > 0.
+    #     diffuse_fft!(burger, u, Δt) # Δu
+    # end
 end
 
 function my_step!(
@@ -261,7 +251,7 @@ function test()
         XBraid.testDelta(test_app, 0.0, 0.1, 3, cfile)
     end
     # plot!(burger.lyap_vecs[1][1])
-    plot(burger.solution[1])
+    # plot(burger.solution[1])
 end
 
 function main(;tstop=π, ntime=128, deltaRank=0, useTheta=false, fmg=false, ml=1, cf=4, saveGif=false, maxiter=30, μ=0.)
