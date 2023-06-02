@@ -46,11 +46,12 @@ mutable struct ThetaVector
     u::Vector{Float64}
     ψ::Vector{Float64}
     t_prior::Float64
+    η_scale::Float64
 end
 function ThetaVector(u, order::Integer)
     numconditions = [0, 1, 3, 7, 16]
-    order > 5 && return ThetaVector(u, zeros(numconditions[5]), 0.)
-    return ThetaVector(u, zeros(numconditions[order]), 0.)
+    order > 5 && return ThetaVector(u, zeros(numconditions[5]), 0., 1.)
+    return ThetaVector(u, zeros(numconditions[order]), 0., 1.)
 end
 
 function dirk_step!(app::AdvDifApp, u::Vector{<:Real}, Δt::Real, btable::ButcherTable; embedding=nothing)
@@ -108,39 +109,44 @@ function my_step!(app::AdvDifApp, status::XBraid.Status.StepStatus, u::ThetaVect
         if XBraid.isCPoint(ti, cfactor)
             u.ψ .= 0.
             u.t_prior = tstart
+            # scale the time-step size by 1/mh₁ for numerical stability
+            # ideally we would scale by 1/h_c but we don't know that
+            u.η_scale = cfactor*Δt
         end
-        Δt_prior = tstart - u.t_prior
+        η = Δt/u.η_scale
+        η_prior = (tstart - u.t_prior)/u.η_scale
         ψ_old = deepcopy(u.ψ)
         ψ_step = [ψ(btable, t) for t ∈ T.keys[1:length(u.ψ)]]
 
         # second order
-        u.ψ[T[:{τ}]] += Δt^2 * ψ_step[T[:{τ}]] + Δt * Δt_prior
+        u.ψ[T[:{τ}]] += η^2 * ψ_step[T[:{τ}]] + η * η_prior
 
         # third order
         if app.cgorder >= 3
-            u.ψ[T[:{{τ}}]] += Δt^3 * ψ_step[T[:{{τ}}]] + Δt * ψ_old[T[:{τ}]] + Δt^2 * Δt_prior * ψ_step[T[:{τ}]]
-            u.ψ[T[:{τ, τ}]] += Δt^3 * ψ_step[T[:{τ, τ}]] + 2Δt^2 * Δt_prior * ψ_step[T[:{τ}]] + Δt * Δt_prior^2
+            u.ψ[T[:{τ, τ}]] += η^3 * ψ_step[T[:{τ, τ}]] + 2η^2 * η_prior * ψ_step[T[:{τ}]] + η * η_prior^2
+            u.ψ[T[:{{τ}}]]  += η^3 * ψ_step[T[:{{τ}}]] + η * ψ_old[T[:{τ}]] + η^2 * η_prior * ψ_step[T[:{τ}]]
         end
 
         # last step of f-interval
         if XBraid.isCPoint(ti+1, cfactor)
             # normalize order conditions
-            Δt_c = tstop - u.t_prior
+            η_c = (tstop - u.t_prior)/u.η_scale
+            @info "η_c = $η_c"
             # 2nd order
-            u.ψ[T[:{τ}]] /= Δt_c^2
+            u.ψ[T[:{τ}]] /= η_c^2
             f!, J!, fill, guess = θsdirk2_lhs!, θsdirk2_J!, θsdirk2_fill, θsdirk2_guess
             # 3rd order
             if app.cgorder >= 3
-                u.ψ[T[:{{τ}}]] /= Δt_c^3
-                u.ψ[T[:{τ, τ}]] /= Δt_c^3
+                u.ψ[T[:{{τ}}]] /= η_c^3
+                u.ψ[T[:{τ, τ}]] /= η_c^3
                 f!, J!, fill, guess = θsdirk3_lhs!, θsdirk3_J!, θsdirk3_fill, θsdirk3_guess
             end
 
             # solve order conditions:
-            # @info """
-            # Solving order conditions at t = $tstop
-            # ψ = $(u.ψ)
-            # """
+            @info """
+            Solving order conditions at t = $tstop
+            ψ = $(u.ψ)
+            """
             iu, il = XBraid.Status.getTIUL(status, level+1)
             ic = XBraid.mapFineToCoarse(ti, cfactor) - il + 1
             app.cg_btables[level+1][ic] = solve_order_conditions(f!, J!, fill, app.cgorder, u.ψ; guess=guess)

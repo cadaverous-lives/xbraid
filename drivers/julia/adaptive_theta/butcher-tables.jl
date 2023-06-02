@@ -31,57 +31,57 @@ forest = OrderedDict(
     # 2nd order
     :{τ} => 1,
     # 3rd order
-    :{{τ}} => 2,
-    :{τ, τ} => 3,
+    :{τ, τ} => 2,
+    :{{τ}}  => 3,
     # 4th order
-    :{{{τ}}} => 4,
-    :{{τ, τ}} => 5,
-    :{τ, {τ}} => 6,
-    :{τ, τ, τ} => 7,
+    :{τ, τ, τ} => 4,
+    :{τ, {τ}}  => 5,
+    :{{τ, τ}}  => 6,
+    :{{{τ}}}   => 7,
     # 5th order
-    :{{{{τ}}}} => 8,
-    :{{{τ, τ}}} => 9,
-    :{{τ, {τ}}} => 10,
-    :{{τ, τ, τ}} => 11,
-    :{τ, {{τ}}} => 12,
-    :{τ, {τ, τ}} => 13,
-    :{{τ}, {τ}} => 14,
-    :{τ, τ, {τ}} => 15,
-    :{τ, τ, τ, τ} => 16
+    :{τ, τ, τ, τ} => 8,
+    :{τ, τ, {τ}}  => 9,
+    :{{τ}, {τ}}   => 10,
+    :{τ, {τ, τ}}  => 11,
+    :{{τ, τ, τ}}  => 12,
+    :{τ, {{τ}}}   => 13,
+    :{{τ, {τ}}}   => 14,
+    :{{{τ, τ}}}   => 15,
+    :{{{{τ}}}}    => 16
 )
 
 elem_weights = [
     # 2nd order
     (A, b, c) -> b' * c,
     # 3rd order
-    (A, b, c) -> b' * A * c,
     (A, b, c) -> b' * c.^2,
+    (A, b, c) -> b' * A * c,
     # 4th order
-    (A, b, c) -> b' * A * A * c,
-    (A, b, c) -> b' * A * c.^2,
-    (A, b, c) -> b' * (c .* (A*c)),
     (A, b, c) -> b' * c.^3,
+    (A, b, c) -> b' * (c .* (A*c)),
+    (A, b, c) -> b' * A * c.^2,
+    (A, b, c) -> b' * A * A * c,
     # 5th order
-    (A, b, c) -> b' * A * A * A * c,
-    (A, b, c) -> b' * A * A * c.^2,
-    (A, b, c) -> b' * A * (c .* (A*c)),
+    (A, b, c) -> b' * c.^4,
+    (A, b, c) -> b' * (c .* (c .* (A*c))),
+    (A, b, c) -> b' * (A * c).^2,
+    (A, b, c) -> b' * (c .* (A*c.^2)),
     (A, b, c) -> b' * A * c.^3,
     (A, b, c) -> b' * (c .* (A*A*c)),
-    (A, b, c) -> b' * (c .* (A*c.^2)),
-    (A, b, c) -> b' * (A * c).^2,
-    (A, b, c) -> b' * (c .* (c .* (A*c))),
-    (A, b, c) -> b' * c.^4
+    (A, b, c) -> b' * A * (c .* (A*c)),
+    (A, b, c) -> b' * A * A * c.^2,
+    (A, b, c) -> b' * A * A * A * c
 ]
 
 rhs_classical = [
     # 2nd order
     1/2,
     # 3rd order
-    1/6, 1/3,
+    1/3, 1/6,
     # 4th order
-    1/24, 1/12, 1/8, 1/4,
+    1/4, 1/8, 1/12, 1/24,
     # 5th order
-    1/120, 1/60, 1/40, 1/20, 1/30, 1/15, 1/20, 1/10, 1/5
+    1/5, 1/10, 1/20, 1/15, 1/20, 1/30, 1/40, 1/60, 1/120
 ]
 num_conditions = [0, 1, 3, 7, 16]
 
@@ -119,7 +119,7 @@ function solve_order_conditions(f!::Function, J!::Function, fill::Function, orde
     fill(result.zero)
 end
 
-function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString)
+function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString; filename::AbstractString=name, write::Bool=true)
     rhsnames = [:th]
     num_conds = num_conditions[order]
     # fill butcher table
@@ -142,13 +142,14 @@ function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString)
         lhsname=:c, rhsnames=rhsnames
     )
     # compute order conditions
-    conds_sym = [expand(ψ(B, t)) for t ∈ forest.keys[1:num_conds]]
+    @variables rhs[1:num_conds]
+    conds_sym = [expand(ψ(B, t) - rhs[i]) for (i, t) ∈ enumerate(forest.keys[1:num_conds])]
     conds_jac = Symbolics.jacobian(conds_sym, θ[1:num_conds])
     func = build_function(
-        conds_sym, collect(θ[1:num_conds]);
-        target=SunTarget(), header=true,
+        conds_sym, collect(θ[1:num_conds]), collect(rhs[1:num_conds]);
+        target=SunTarget(), header=write,
         fname=name * "_lhs",
-        lhsname=:phi, rhsnames=rhsnames
+        lhsname=:phi, rhsnames=(:th, :rhs)
     )
     func_j = build_function(
         conds_jac, collect(θ[1:num_conds]);
@@ -156,7 +157,9 @@ function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString)
         fname=name * "_lhs_jac",
         lhsname=:phi_J, rhsnames=rhsnames
     )
-    open("c_funcs/$name.c", "w") do file
+    behavior = write ? "w" : "a"
+    open("c_funcs/$filename.c", behavior) do file
+        println(file, "/* $name */\n")
         println(file, func)
         println(file, func_j)
         println(file, fA)
@@ -201,11 +204,13 @@ sdirk4 = ButcherTable(A4, A4[5, :])
 
 # θ methods
 
+filename = "arkode_xbraid_theta_methods"
+
 # can approximate up to 2nd order
 θesdirk2 = ButcherTable([0.0 0.0; 1-θ[1] θ[1]], [1-θ[1], θ[1]])
 θesdirk2_lhs!, θesdirk2_J!, θesdirk2_fill = gen_lhs_func(θesdirk2, 2)
 θesdirk2_guess = [1/2]
-gen_c_lhs_func(θesdirk2, 2, "theta_esdirk2")
+gen_c_lhs_func(θesdirk2, 2, "theta_esdirk2"; filename=filename, write=true)
 #=
     0 │     0   0 
     1 │ 1 - θ   θ 
@@ -217,7 +222,7 @@ gen_c_lhs_func(θesdirk2, 2, "theta_esdirk2")
 θsdirk2 = ButcherTable([θ[1] 0.0; 1-θ[1] θ[1]], [1-θ[1], θ[1]])
 θsdirk2_lhs!, θsdirk2_J!, θsdirk2_fill = gen_lhs_func(θsdirk2, 2)
 θsdirk2_guess = [1-√2/2]
-gen_c_lhs_func(θsdirk2, 2, "theta_sdirk2")
+gen_c_lhs_func(θsdirk2, 2, "theta_sdirk2"; filename=filename, write=false)
 #=
     θ │     θ   0 
     1 │ 1 - θ   θ 
@@ -228,7 +233,7 @@ gen_c_lhs_func(θsdirk2, 2, "theta_sdirk2")
 # can approximate up to 3rd order
 θesdirk3 = ButcherTable([0. 0. 0.; θ[2]-θ[1] θ[1] 0; θ[3] (1.0-θ[3]-θ[1]) θ[1]], [θ[3], 1.0-θ[3]-θ[1], θ[1]])
 θesdirk3_lhs!, θesdirk3_J!, θesdirk3_fill = gen_lhs_func(θesdirk3, 3)
-gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3")
+gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3"; filename=filename, write=false)
 #=
    0  │      0            0   0
    θ₂ │ θ₂ - θ₁           θ₁  0
@@ -240,7 +245,7 @@ gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3")
 θsdirk3 = ButcherTable([θ[1] 0.0 0.0; θ[2]-θ[1] θ[1] 0; (1.0-θ[3]-θ[1]) θ[3] θ[1]], [1.0-θ[3]-θ[1], θ[3], θ[1]])
 θsdirk3_lhs!, θsdirk3_J!, θsdirk3_fill = gen_lhs_func(θsdirk3, 3)
 θsdirk3_guess = [0.4358665215, 0.71793326075, -0.6443631706532353]
-gen_c_lhs_func(θsdirk3, 3, "theta_sdirk3")
+gen_c_lhs_func(θsdirk3, 3, "theta_sdirk3"; filename=filename, write=false)
 #=
    θ₁ │          θ₁  0   0
    θ₂ │     θ₂ - θ₁  θ₁  0
