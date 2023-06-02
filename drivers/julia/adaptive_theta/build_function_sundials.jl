@@ -52,7 +52,7 @@ function sunoperators(expr)
             end
         #... otherwise use "pow" function
         else
-            append!(expr.args, [:SUNpowerI, x, n])
+            append!(expr.args, [:SUNRpowerI, x, n])
         end
     # replace bare real constants by RCONST
     elseif expr.head==:call && (expr.args[1]==:* || expr.args[1]==:+ || expr.args[1]==:/)
@@ -85,7 +85,7 @@ function Symbolics._build_function(target::SunTarget, ex::AbstractArray, args...
         push!(equations, string(lhs, " = ", rhs, ";"))
     end
 
-    argstrs = join(vcat("sunrealtype* $(lhsname)",[typeof(args[i])<:AbstractArray ? "const sunrealtype* $(rhsnames[i])" : "const sunrealtype $(rhsnames[i])" for i in 1:length(args)]),", ")
+    argstrs = join(vcat("sunrealtype* $(lhsname)",[typeof(args[i])<:AbstractArray ? "const sunrealtype* $(rhsnames[i])" : "const sunrealtype $(rhsnames[i])" for i ∈ eachindex(args)]),", ")
 
     head = """
     #include <sundials/sundials_types.h>
