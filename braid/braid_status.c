@@ -447,6 +447,17 @@ braid_StatusSetTightFineTolx(braid_Status status,
 }
 
 braid_Int
+braid_StepStatusAcceptsRFactor(braid_StepStatus status)
+{
+   braid_Int level  = _braid_StatusElt(status, level);
+   braid_Int caller = _braid_StatusElt(status, calling_function);
+   braid_Int refine = _braid_CoreElt((braid_Core)status, refine);
+   /* Only accept rfactors in FRestrict on the fine-grid */
+   return (refine && level == 0 
+           && (caller == braid_ASCaller_FRestrict || caller == braid_ASCaller_FASResidual));
+}
+
+braid_Int
 braid_StatusSetRFactor(braid_Status status,
                        braid_Real   rfactor
                        )

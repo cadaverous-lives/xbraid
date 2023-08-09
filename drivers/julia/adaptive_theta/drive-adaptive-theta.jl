@@ -1,5 +1,6 @@
 using ToeplitzMatrices, LinearAlgebra, IterativeSolvers
 using Plots
+using Plots: plot!, plot
 using MPI
 
 include("../../../braid/braid.jl/XBraid.jl")
@@ -13,7 +14,6 @@ mutable struct AdvDifApp
     A::Circulant
     I::SymmetricToeplitz
     useTheta::Bool
-    useRich::Bool
     order::Int
     cf::Int
     max_levels::Int
@@ -30,16 +30,16 @@ mutable struct AdvDifApp
     cg_btables::Vector{Vector{ButcherTable}} # butcher tables for each level/step
 end
 
-fine_btables = [beuler, sdirk212, esdirk3, sdirk4]
+fine_btables = [beuler, sdirk212, esdirk3, sdirk534]
 
 # default constructor
-function AdvDifApp(nx::Integer, Δx::Real, ν::Real, α::Real, useTheta::Bool, useRich::Bool, order::Integer, cf::Integer, ml::Integer; spatial_tol=1e-3, cgorder=order+1, skip=true)
-    I = SymmetricToeplitz([1, zeros(nx-1)...])
-    Δ = (1/Δx^2)Circulant([-2, 1, zeros(nx-3)..., 1])
-    ∇ = (1/Δx)Circulant([0, -1/2, zeros(nx-3)..., 1/2])
+function AdvDifApp(nx::Integer, Δx::Real, ν::Real, α::Real, useTheta::Bool, order::Integer, cf::Integer, ml::Integer; spatial_tol=1e-3, cgorder=order + 1, skip=true)
+    I = SymmetricToeplitz([1, zeros(nx - 1)...])
+    Δ = (1 / Δx^2)Circulant([-2, 1, zeros(nx - 3)..., 1])
+    ∇ = (1 / Δx)Circulant([0, -1 / 2, zeros(nx - 3)..., 1 / 2])
     # ∇ = (1/Δx)Circulant([-1, 1, zeros(nx-2)...])
-    A = ν*Δ - α*∇
-    AdvDifApp(nx, Δx, A, I, useTheta, useRich, order, cf, ml, [], [], [], spatial_tol, skip, cgorder, false, fine_btables[order], [])
+    A = ν * Δ - α * ∇
+    AdvDifApp(nx, Δx, A, I, useTheta, order, cf, ml, [], [], [], spatial_tol, skip, cgorder, false, fine_btables[order], [])
 end
 
 mutable struct ThetaVector
@@ -50,16 +50,16 @@ mutable struct ThetaVector
 end
 function ThetaVector(u, order::Integer)
     numconditions = [0, 1, 3, 7, 16]
-    order > 5 && return ThetaVector(u, zeros(numconditions[5]), 0., 1.)
-    return ThetaVector(u, zeros(numconditions[order]), 0., 1.)
+    order > 5 && return ThetaVector(u, zeros(numconditions[5]), 0.0, 1.0)
+    return ThetaVector(u, zeros(numconditions[order]), 0.0, 1.0)
 end
 
 function dirk_step!(app::AdvDifApp, u::Vector{<:Real}, Δt::Real, btable::ButcherTable; embedding=nothing)
     k = zeros(app.nx, btable.s)
     for i in 1:btable.s
-        k[:, i] .= Δt * app.A * (u .+ sum(btable.A[i, j]*k[:, j] for j ∈ 1:i-1; init=zeros(app.nx)))
+        k[:, i] .= Δt * app.A * (u .+ sum(btable.A[i, j] * k[:, j] for j ∈ 1:i-1; init=zeros(app.nx)))
         if btable.A[i, i] != 0
-            k[:, i] .= (app.I -  Δt * btable.A[i, i] * app.A) \ k[:, i]
+            k[:, i] .= (app.I - Δt * btable.A[i, i] * app.A) \ k[:, i]
         end
     end
     u .= u + sum(btable.b[j] * k[:, j] for j ∈ 1:btable.s)
@@ -68,7 +68,7 @@ function dirk_step!(app::AdvDifApp, u::Vector{<:Real}, Δt::Real, btable::Butche
         err_est = sum(embedding[j] * k[:, j] for j ∈ 1:btable.s) - sum(btable.b[j] * k[:, j] for j ∈ 1:btable.s)
         return norm(err_est)
     end
-    return 0.
+    return 0.0
 end
 
 function get_btable(app::AdvDifApp, status::XBraid.Status.StepStatus, ti::Integer)
@@ -86,9 +86,10 @@ XBraid functions
 =====================#
 
 function my_init(app, t)
-    t == 0.0 && return ThetaVector(sin.(range(0., 2π-app.Δx, app.nx)), app.cgorder)
     u = randn(app.nx)
-    # u = zeros(app.nx)
+    if t == 0.0 
+        u .= 0.1*u + sin.(range(0.0, 2π - app.Δx, app.nx))
+    end
     return ThetaVector(u, app.cgorder)
 end
 
@@ -101,20 +102,21 @@ function my_step!(app::AdvDifApp, status::XBraid.Status.StepStatus, u::ThetaVect
 
     # get Butcher table for this step
     btable = get_btable(app, status, ti)
-    
+
     # f-relax
     if app.flag_refine_downcycle && caller ∈ [XBraid.CallerFRestrict, XBraid.CallerFASResidual]
         cfactor = XBraid.Status.getCFactor(status)
         # first step of f-interval
         if XBraid.isCPoint(ti, cfactor)
-            u.ψ .= 0.
+            u.ψ .= 0.0
             u.t_prior = tstart
             # scale the time-step size by 1/mh₁ for numerical stability
             # ideally we would scale by 1/h_c but we don't know that
-            u.η_scale = cfactor*Δt
+            u.η_scale = cfactor * Δt
+            # u.η_scale = 1.
         end
-        η = Δt/u.η_scale
-        η_prior = (tstart - u.t_prior)/u.η_scale
+        η = Δt / u.η_scale
+        η_prior = (tstart - u.t_prior) / u.η_scale
         ψ_old = deepcopy(u.ψ)
         ψ_step = [ψ(btable, t) for t ∈ T.keys[1:length(u.ψ)]]
 
@@ -124,33 +126,61 @@ function my_step!(app::AdvDifApp, status::XBraid.Status.StepStatus, u::ThetaVect
         # third order
         if app.cgorder >= 3
             u.ψ[T[:{τ, τ}]] += η^3 * ψ_step[T[:{τ, τ}]] + 2η^2 * η_prior * ψ_step[T[:{τ}]] + η * η_prior^2
-            u.ψ[T[:{{τ}}]]  += η^3 * ψ_step[T[:{{τ}}]] + η * ψ_old[T[:{τ}]] + η^2 * η_prior * ψ_step[T[:{τ}]]
+            u.ψ[T[:{{τ}}]] += η^3 * ψ_step[T[:{{τ}}]] + η * ψ_old[T[:{τ}]] + η^2 * η_prior * ψ_step[T[:{τ}]]
+        end
+
+        # fourth order
+        if app.cgorder >= 4
+            u.ψ[T[:{τ, τ, τ}]] += η^4 * ψ_step[T[:{τ, τ, τ}]] + 3η^3 * η_prior * ψ_step[T[:{τ, τ}]] + 3η_prior^2 * η^2 * ψ_step[T[:{τ}]] + η * η_prior^3
+            u.ψ[T[:{τ, {τ}}]] += η^2 * ψ_step[T[:{τ}]] * ψ_old[T[:{τ}]] + η^4 * ψ_step[T[:{τ, {τ}}]] + η^3 * η_prior * ψ_step[T[:{τ, τ}]] + η * η_prior * ψ_old[T[:{τ}]] + η^3 * η_prior * ψ_step[T[:{{τ}}]] + η^2 * η_prior^2 * ψ_step[T[:{τ}]]
+            u.ψ[T[:{{τ, τ}}]] += η * ψ_old[T[:{τ, τ}]] + η^4 * ψ_step[T[:{{τ, τ}}]] + 2η_prior * η^3 * ψ_step[T[:{{τ}}]] + η_prior^2 * η^2 * ψ_step[T[:{τ}]]
+            u.ψ[T[:{{{τ}}}]] += η * ψ_old[T[:{{τ}}]] + η^2 * ψ_step[T[:{τ}]] * ψ_old[T[:{τ}]] + η^4 * ψ_step[T[:{{{τ}}}]] + η_prior * η^3 * ψ_step[T[:{{τ}}]]
         end
 
         # last step of f-interval
-        if XBraid.isCPoint(ti+1, cfactor)
+        if XBraid.isCPoint(ti + 1, cfactor)
             # normalize order conditions
-            η_c = (tstop - u.t_prior)/u.η_scale
-            @info "η_c = $η_c"
+            η_c = (tstop - u.t_prior) / u.η_scale
+            # @info "η_c = $η_c, cgorder = $(app.cgorder)"
             # 2nd order
-            u.ψ[T[:{τ}]] /= η_c^2
-            f!, J!, fill, guess = θsdirk2_lhs!, θsdirk2_J!, θsdirk2_fill, θsdirk2_guess
+            if app.cgorder >= 2
+                u.ψ[T[:{τ}]] /= η_c^2
+                f!, J!, fill, guess = θsdirk2_lhs!, θsdirk2_J!, θsdirk2_fill, θsdirk2_guess
+            end
+
             # 3rd order
             if app.cgorder >= 3
-                u.ψ[T[:{{τ}}]] /= η_c^3
                 u.ψ[T[:{τ, τ}]] /= η_c^3
+                u.ψ[T[:{{τ}}]]  /= η_c^3
                 f!, J!, fill, guess = θsdirk3_lhs!, θsdirk3_J!, θsdirk3_fill, θsdirk3_guess
             end
 
+            # 4th order
+            if app.cgorder >= 4
+                u.ψ[T[:{τ, τ, τ}]] /= η_c^4
+                u.ψ[T[:{τ, {τ}}]]  /= η_c^4
+                u.ψ[T[:{{τ, τ}}]]  /= η_c^4
+                u.ψ[T[:{{{τ}}}]]   /= η_c^4
+                f!, J!, fill, guess = θsdirk4_lhs!, θsdirk4_J!, θsdirk4_fill, θsdirk4_guess
+                # f!, J!, fill, guess = θqesdirk4_lhs!, θqesdirk4_J!, θqesdirk4_fill, zeros(7)
+            end
+
             # solve order conditions:
-            @info """
-            Solving order conditions at t = $tstop
-            ψ = $(u.ψ)
-            """
-            iu, il = XBraid.Status.getTIUL(status, level+1)
+            # if !(u.ψ[1] ≈ 0.5)
+            #     @info """
+            #     Solving order conditions at t = $tstop, lvl = $level
+            #     calling function: $caller #     ψ = $(u.ψ)
+            #     """
+            # end
+            iu, il = XBraid.Status.getTIUL(status, level + 1)
             ic = XBraid.mapFineToCoarse(ti, cfactor) - il + 1
             app.cg_btables[level+1][ic] = solve_order_conditions(f!, J!, fill, app.cgorder, u.ψ; guess=guess)
         end
+    end
+
+    # turn off skip downcycle flag
+    if app.skip_downcycle && caller == XBraid.Status.CallerFInterp
+        app.skip_downcycle = false
     end
 
     # turn off order conditions once upcycle starts
@@ -161,28 +191,38 @@ function my_step!(app::AdvDifApp, status::XBraid.Status.StepStatus, u::ThetaVect
 
     # finally, take the step
     embed = nothing
-    if level == 0 && app.order == 2
-        embed = sdirk212_emb
+    if level == 0 && XBraid.Status.acceptsRFactor(status)
+        if app.order == 2
+            embed = sdirk212_emb
+        end
+        if app.order == 3
+            embed = esdirk3_emb
+        end
+        if app.order == 4
+            embed = sdirk534_emb
+        end
     end
     # println("level: $level, ti: $ti")
     # display(btable)
     # println("emb: $embed")
-    err_est = dirk_step!(app, u.u, Δt, btable; embedding=embed)
-    if err_est >= app.spatial_tol && caller != XBraid.CallerWarmup
-        XBraid.Status.setRFactor(status, 2)
+    if !app.skip_downcycle
+        err_est = dirk_step!(app, u.u, Δt, btable; embedding=embed)
+        if err_est > app.spatial_tol
+            XBraid.Status.setRFactor(status, 2)
+        end
     end
 end
 
 function my_sync!(app::AdvDifApp, status::XBraid.SyncStatus)
-    app.useTheta || return
+    nlevels = XBraid.Status.getNLevels(status)
+    app.useTheta && nlevels > 1 || return
+
     caller = XBraid.Status.getCallingFunction(status)
     iter = XBraid.Status.getIter(status)
-    # println("sync! caller: $caller, iter: $(XBraid.Status.getIter(status))")
 
     if caller == XBraid.CallerDrive_AfterInit || caller == XBraid.Status.CallerFRefine_AfterInitHier
         app.cg_btables = Vector{ButcherTable}[]
         # initialize storage for coarse grid butcher tables
-        nlevels = XBraid.Status.getNLevels(status)
         for l ∈ 1:nlevels-1
             iu, il = XBraid.Status.getTIUL(status, l)
             ncpoints = iu - il + 1
@@ -197,6 +237,7 @@ function my_sync!(app::AdvDifApp, status::XBraid.SyncStatus)
     if app.skip_downcycle && caller == XBraid.CallerDrive_TopCycle && iter == 0
         app.flag_refine_downcycle = true
     end
+
     app.flag_refine_downcycle && @info "Recomputing coarse grid butcher tables"
     return
 end
@@ -223,33 +264,33 @@ function my_access(app::AdvDifApp, status, u)
     end
 end
 
-function test(;ν=1., α=1., order=1)
+function test(; ν=1.0, α=1.0, order=1)
     MPI.Init()
     comm = MPI.COMM_WORLD
 
-    my_app = AdvDifApp(512, 2π/513, ν, α, false, false, order, 2, 2)
+    my_app = AdvDifApp(512, 2π / 513, ν, α, false, false, order, 2, 2)
     app = XBraid.BraidApp(my_app, comm, my_step!, my_init, my_access; sum=my_sum!, spatialnorm=my_norm)
 
-    XBraid.testInitAccess(app, 0.)
-    XBraid.testSum(app, 0.)
-    XBraid.testSpatialNorm(app, 0.)
-    u = my_init(my_app, 0.)
+    XBraid.testInitAccess(app, 0.0)
+    XBraid.testSum(app, 0.0)
+    XBraid.testSpatialNorm(app, 0.0)
+    u = my_init(my_app, 0.0)
     println(my_norm(my_app, u))
     plot(u.u, label="u0", legend=:bottomright)
-    my_step!(my_app, XBraid.StepStatus(), u, u, 0., .05)
+    my_step!(my_app, XBraid.StepStatus(), u, u, 0.0, 0.05)
     println(my_norm(my_app, u))
     plot!(u.u, label="u1")
 end
 
-function main(;tstop=2π, ntime=512, nx=512, ν=1., α=1., useTheta=false, useRich=false, cf=4, ml=2, maxiter=10, order=1, skip=false, refine=false, maxrefine=2, finefcf=true, tol=1e-3)
+function main(; tstop=2π, ntime=512, nx=512, ν=1.0, α=1.0, useTheta=false, cf=4, ml=4, maxiter=10, order=1, skip=false, refine=false, maxrefine=2, finefcf=true, tol=1e-3)
     MPI.Init()
     comm = MPI.COMM_WORLD
 
     Δx = 2π / nx
-    app = AdvDifApp(nx, Δx, ν, α, useTheta, useRich, order, cf, ml; skip=skip, spatial_tol=tol)
+    app = AdvDifApp(nx, Δx, ν, α, useTheta, order, cf, ml; skip=skip, spatial_tol=tol)
 
-    core = XBraid.Init(comm, 0., tstop, ntime, my_step!, my_init, my_access;
-                       app=app, sync=my_sync!, sum=my_sum!, spatialnorm=my_norm)
+    core = XBraid.Init(comm, 0.0, tstop, ntime, my_step!, my_init, my_access;
+        app=app, sync=my_sync!, sum=my_sum!, spatialnorm=my_norm)
 
     XBraid.setPrintLevel(core, 2)
     XBraid.setMaxLevels(core, ml)
@@ -258,13 +299,13 @@ function main(;tstop=2π, ntime=512, nx=512, ν=1., α=1., useTheta=false, useRi
     XBraid.setNRelax(core, -1, 1)
     XBraid.setAbsTol(core, 1e-8)
     XBraid.setMaxIter(core, maxiter)
-    XBraid.setSkip(core, skip)
+    XBraid.setSkip(core, !useTheta && skip)
     XBraid.setRefine(core, refine)
     XBraid.setMaxRefinements(core, maxrefine)
     if !finefcf
         XBraid.setNRelax(core, 0, 0)
     end
-    
+
     XBraid.Drive(core)
 
     append!(app.residuals, XBraid.getRNorms(core))

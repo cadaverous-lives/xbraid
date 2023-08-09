@@ -16,17 +16,17 @@ function sunoperators(expr)
         end
     end
     for i in eachindex(expr.args)
-        if expr.args[i] isa Union{Float32, Float64, Rational}
+        if expr.args[i] isa Union{Float32,Float64,Rational}
             # RCONST is a macro from sundials which constructs a real constant
             expr.args[i] = :(RCONST($(float(expr.args[i]))))
         end
     end
     # Introduce another factor 1 to prevent contraction of terms like "5 * t" to "5t" (not valid C code)
-    if expr.head==:call && expr.args[1]==:* && length(expr.args)==3 && isa(expr.args[2], Real) && isa(expr.args[3], Symbol)
+    if expr.head == :call && expr.args[1] == :* && length(expr.args) == 3 && isa(expr.args[2], Real) && isa(expr.args[3], Symbol)
         push!(expr.args, 1)
-    # Power operator does not exist in C, replace by multiplication or "pow"
-    elseif expr.head==:call && expr.args[1]==:^
-        @assert length(expr.args)==3 "Don't know how to handle ^ operation with <> 2 arguments"
+        # Power operator does not exist in C, replace by multiplication or "pow"
+    elseif expr.head == :call && expr.args[1] == :^
+        @assert length(expr.args) == 3 "Don't know how to handle ^ operation with <> 2 arguments"
         x = expr.args[2]
         n = expr.args[3]
         empty!(expr.args)
@@ -34,7 +34,7 @@ function sunoperators(expr)
         #   x is a symbol and  n is a small integer
         #   x is a more complex expression and n is ±1
         #   n is exactly 0
-        if (isa(n,Integer) && ((isa(x, Symbol) && abs(n) <= 3) || abs(n) <= 1)) || n==0
+        if (isa(n, Integer) && ((isa(x, Symbol) && abs(n) <= 3) || abs(n) <= 1)) || n == 0
             if n >= 0
                 append!(expr.args, [:*, fill(x, n)...])
                 # fill up with factor 1 so this expr can still be a multiplication
@@ -42,20 +42,20 @@ function sunoperators(expr)
                     push!(expr.args, 1)
                 end
             else # inverse of the above
-                if n==-1
+                if n == -1
                     term = x
                 else
-                    term = :( ($(x)) ^ ($(-n)))
+                    term = :(($(x))^($(-n)))
                     coperators(term)
                 end
-                append!(expr.args, [:/, 1., term])
+                append!(expr.args, [:/, 1.0, term])
             end
-        #... otherwise use "pow" function
+            #... otherwise use "pow" function
         else
             append!(expr.args, [:SUNRpowerI, x, n])
         end
-    # replace bare real constants by RCONST
-    elseif expr.head==:call && (expr.args[1]==:* || expr.args[1]==:+ || expr.args[1]==:/)
+        # replace bare real constants by RCONST
+    elseif expr.head == :call && (expr.args[1] == :* || expr.args[1] == :+ || expr.args[1] == :/)
         for i in eachindex(expr.args)
             if expr.args[i] isa Real
                 expr.args[i] = :(RCONST($(float(expr.args[i]))))
@@ -66,26 +66,32 @@ function sunoperators(expr)
 end
 
 function Symbolics._build_function(target::SunTarget, ex::AbstractArray, args...;
-                                   conv     = Symbolics.toexpr,
-                                   header   = false,
-                                   fname    = :diffeqf,
-                                   lhsname  = :du,
-                                   rhsnames = [Symbol("RHS$i") for i in 1:length(args)])
+    conv=Symbolics.toexpr, header=false,
+    rowmajor=false, fname=:diffeqf,
+    lhsname=:du, rhsnames=[Symbol("RHS$i") for i in 1:length(args)]
+)
+    if rowmajor
+        return Symbolics._build_function(target, hcat([row for row in eachrow(ex)]...), args...;
+            conv=conv, header=header,
+            rowmajor=false, fname=fname,
+            lhsname=lhsname, rhsnames=rhsnames
+        )
+    end
+
     @info "Building function _$fname for target $target"
     fname = Symbol('_' * string(fname))
-    ex = hcat([row for row in eachrow(ex)]...)
     varnumbercache = Symbolics.buildvarnumbercache(args...)
     equations = Vector{String}()
     for col ∈ axes(ex, 2), row ∈ axes(ex, 1)
-        lhs = string(lhsname, "[", (col-1) * size(ex,1) + row-1, "]")
+        lhs = string(lhsname, "[", (col - 1) * size(ex, 1) + row - 1, "]")
         rhs = Symbolics.numbered_expr(ex[row, col].val, varnumbercache, args...;
-                                        lhsname  = lhsname,
-                                        rhsnames = rhsnames,
-                                        offset = -1) |> sunoperators |> sunliterals |> string
+                  lhsname=lhsname,
+                  rhsnames=rhsnames,
+                  offset=-1) |> sunoperators |> sunliterals |> string
         push!(equations, string(lhs, " = ", rhs, ";"))
     end
 
-    argstrs = join(vcat("sunrealtype* $(lhsname)",[typeof(args[i])<:AbstractArray ? "const sunrealtype* $(rhsnames[i])" : "const sunrealtype $(rhsnames[i])" for i ∈ eachindex(args)]),", ")
+    argstrs = join(vcat("sunrealtype* $(lhsname)", [typeof(args[i]) <: AbstractArray ? "const sunrealtype* $(rhsnames[i])" : "const sunrealtype $(rhsnames[i])" for i ∈ eachindex(args)]), ", ")
 
     head = """
     #include <sundials/sundials_types.h>
@@ -94,7 +100,7 @@ function Symbolics._build_function(target::SunTarget, ex::AbstractArray, args...
     """
     body = "void $fname($(argstrs...))\n{$([string("\n  ", eqn) for eqn ∈ equations]...)\n}\n"
     if header
-        return head*body
+        return head * body
     else
         return body
     end

@@ -136,6 +136,11 @@ function getNLevels(status::Union{StepStatus, AccessStatus, SyncStatus})
     return nlevels[]
 end
 
+function acceptsRFactor(status::StepStatus)
+    ok = @ccall libbraid.braid_StepStatusAcceptsRFactor(status.ptr::Ptr{Cvoid})::Cint
+    return (ok > 0)
+end
+
 function setRFactor(status::StepStatus, rfactor::Real)
     status.ptr == C_NULL && return nothing
     @ccall libbraid.braid_StatusSetRFactor(status.ptr::Ptr{Cvoid}, rfactor::Cdouble)::Cint
