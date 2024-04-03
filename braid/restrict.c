@@ -49,6 +49,7 @@
  * ustop) The ustop values for A_c(R(u)) are set in (@ _braid_Residual) and for
  * A_c(u_c), they are set in (@ _braid_step).
  *
+ * TODO: Update this comment
  * storage == -2 implies that (@ref _braid_GetUInit()) will always use the
  * previous time step value as the initial guess, even if you have better
  * information, which is the case at C-points on the fine grid, and at all
@@ -100,10 +101,10 @@ _braid_FRestrict(braid_Core   core,
    braid_Vector delta_action;
 
    braid_Int            c_level, c_ilower, c_iupper, c_index, c_i, c_ii;
-   braid_BaseVector     c_u, *c_va, *c_fa;
+   braid_BaseVector     c_u, *c_va, *c_wa, *c_fa;
 
    braid_BaseVector     u, r;
-   braid_Int            interval, flo, fhi, fi, ci;
+   braid_Int            storage, interval, flo, fhi, fi, ci;
    braid_Real           rnorm, grnorm, rnorm_temp, rnm;
 
    c_level  = level+1;
@@ -111,8 +112,13 @@ _braid_FRestrict(braid_Core   core,
    c_iupper = _braid_GridElt(grids[c_level], iupper);
    c_va     = _braid_GridElt(grids[c_level], va);
    c_fa     = _braid_GridElt(grids[c_level], fa);
+   c_wa     = _braid_GridElt(grids[c_level], wa);
+   storage  = _braid_GridElt(grids[c_level], storage);
 
    rnorm = 0.0;
+
+   /* Clean up coarse grid from previous iterations */
+   _braid_GridClean(core, grids[c_level]);
 
    _braid_UCommInit(core, level);
 
@@ -202,12 +208,22 @@ _braid_FRestrict(braid_Core   core,
          _braid_MapFineToCoarse(ci, cfactor, c_index);
          _braid_Coarsen(core, c_level, ci, c_index, u, &c_va[c_index-c_ilower]);
          _braid_Coarsen(core, c_level, ci, c_index, r, &c_fa[c_index-c_ilower]);
+         /* Save an improved initial guess */
+         if (storage && c_wa[c_index-c_ilower] == NULL)
+         {
+            /* TODO: Do we need an initial guess for the basis vectors? Should this be a setting? */
+            _braid_BaseClone(core, app, c_va[c_index-c_ilower], &c_wa[c_index-c_ilower]);
+         }
       }
       else if (ci == 0)
       {
          /* Restrict initial condition, coarsening in space if needed */
          _braid_UGetVectorRef(core, level, 0, &u);
          _braid_Coarsen(core, c_level, 0, 0, u, &c_va[0]);
+         if (storage && c_wa[0] == NULL)
+         {
+            _braid_BaseClone(core, app, c_va[0], &c_wa[0]);
+         }
       }
 
       if ((flo <= fhi) || (ci > _braid_CoreElt(core, initiali)))
@@ -232,7 +248,7 @@ _braid_FRestrict(braid_Core   core,
    /* Allocate temporary error estimate array */
    if ( level == 0 && est_error )
    {
-        estimate = _braid_CTAlloc(braid_Real, c_iupper-c_ilower + 1);
+      estimate = _braid_CTAlloc(braid_Real, c_iupper-c_ilower + 1);
    }
 
    /* Start with rightmost point */

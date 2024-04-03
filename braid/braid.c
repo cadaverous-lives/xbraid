@@ -325,7 +325,8 @@ braid_Init(MPI_Comm               comm_world,
    _braid_CoreElt(core, nfmg_Vcyc)       = nfmg_Vcyc;
 
    _braid_CoreElt(core, storage)         = -1;            /* only store C-points */
-   _braid_CoreElt(core, useshell)         = 0;
+   _braid_CoreElt(core, useshell)        = 0;
+   _braid_CoreElt(core, compat_mode)     = 0; /* Set with SetCompatibilityMode below */
 
    _braid_CoreElt(core, gupper)          = 0; /* Set with SetPeriodic() below */
 
@@ -404,7 +405,7 @@ braid_Init(MPI_Comm               comm_world,
    _braid_CoreElt(core, timer_user_residual)  = 0.0;
    _braid_CoreElt(core, timer_user_scoarsen)  = 0.0;
    _braid_CoreElt(core, timer_user_srefine)  = 0.0;
-   _braid_CoreElt(core, timer_user_innerprod)  = 0.0;
+   _braid_CoreElt(core, timer_user_inner_prod)  = 0.0;
    _braid_CoreElt(core, timer_MPI_recv)  = 0.0;
    _braid_CoreElt(core, timer_MPI_wait)  = 0.0;
    _braid_CoreElt(core, timer_MPI_wait_coarse)  = 0.0;
@@ -493,7 +494,6 @@ braid_Destroy(braid_Core  core)
       braid_App               app             = _braid_CoreElt(core, app);
       braid_Int               nlevels         = _braid_CoreElt(core, nlevels);
       _braid_Grid           **grids           = _braid_CoreElt(core, grids);
-      braid_Int               gupper          = _braid_CoreElt(core, gupper);
       braid_Int               richardson      = _braid_CoreElt(core, richardson);
       braid_Int               est_error       = _braid_CoreElt(core, est_error); 
       char                   *timer_file_stem = _braid_CoreElt(core, timer_file_stem);
@@ -533,12 +533,9 @@ braid_Destroy(braid_Core  core)
 
 
          /* Free last time step, if set */
-         if ( (_braid_CoreElt(core, storage) < 0) && !(_braid_IsCPoint(gupper, cfactor)) )
+         if (_braid_GridElt(grids[0], ulast) != NULL)
          {
-            if (_braid_GridElt(grids[0], ulast) != NULL)
-            {
             _braid_BaseFree(core, app, _braid_GridElt(grids[0], ulast));
-            }
          }
 
          /* Destroy Richardson estimate structures */
@@ -812,7 +809,7 @@ braid_PrintTimers(braid_Core  core)
    fprintf(fp, "   free             %1.3e\n",  _braid_CoreElt(core, timer_user_free)); 
    fprintf(fp, "   sum              %1.3e\n",  _braid_CoreElt(core, timer_user_sum)); 
    fprintf(fp, "   spatialnorm      %1.3e\n",  _braid_CoreElt(core, timer_user_spatialnorm)); 
-   fprintf(fp, "   innerprod        %1.3e\n",  _braid_CoreElt(core, timer_user_innerprod)); 
+   fprintf(fp, "   innerprod        %1.3e\n",  _braid_CoreElt(core, timer_user_inner_prod)); 
    fprintf(fp, "   bufsize          %1.3e\n",  _braid_CoreElt(core, timer_user_bufsize)); 
    fprintf(fp, "   bufpack          %1.3e\n",  _braid_CoreElt(core, timer_user_bufpack)); 
    fprintf(fp, "   bufunpack        %1.3e\n\n",  _braid_CoreElt(core, timer_user_bufunpack)); 
@@ -940,7 +937,7 @@ braid_SetMaxLevels(braid_Core  core,
    for (level = old_max_levels; level < max_levels; level++)
    {
       nrels[level]    = -1;
-      CWts[level]    = -1.0;
+      CWts[level]     = -1.0;
       cfactors[level] = 0;
       grids[level]    = NULL;
    }
@@ -1345,6 +1342,19 @@ braid_SetStorage(braid_Core  core,
 
    return _braid_error_flag;
 }
+
+/*--------------------------------------------------------------------------
+ *--------------------------------------------------------------------------*/
+
+braid_Int
+braid_SetCompatibilityMode(braid_Core  core,
+                           braid_Int   compat_mode)
+{
+   _braid_CoreElt(core, compat_mode) = compat_mode;
+
+   return _braid_error_flag;
+}
+
 
 /*--------------------------------------------------------------------------
  *--------------------------------------------------------------------------*/
