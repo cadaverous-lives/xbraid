@@ -510,11 +510,9 @@ braid_Destroy(braid_Core  core)
 
       if (grids[0] != NULL)
       {
-         braid_Int cfactor = _braid_GridElt(grids[0], cfactor);
          /* Destroy stored Lyapunov exponents */
          if (_braid_CoreElt(core, lyap_exp))
          {
-
             braid_Int npoints; 
             if (nlevels == 1)
             {

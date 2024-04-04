@@ -158,7 +158,7 @@ function gen_c_guessfuncs(guesses::AbstractVector, name)
 
     f_guess * """
 
-    int _$(name)_altguess(sunrealtype* guess, sunindextype resets)
+    int _$(name)_altguess(sunrealtype* guess, const sunindextype resets)
     {
       int flag;
       switch (resets)
