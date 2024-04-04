@@ -122,7 +122,65 @@ function solve_order_conditions(f!::Function, J!::Function, fill::Function, orde
     fill(result.zero)
 end
 
-function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString; filename::AbstractString=name, write::Bool=true, guess=zeros(num_conditions[order]))
+function gen_c_guessfuncs(guesses::AbstractVector, name)
+    guess = guesses[1]
+    alt_guesses = [];
+    if length(guesses) > 1
+        alt_guesses = guesses[2:end]
+    end
+    f_guess = build_function(
+        [Num(g) for g ∈ guess]; target=SunTarget(),
+        fname=name * "_guess",
+        lhsname=:guess
+    )
+    length(alt_guesses) == 0 && return f_guess
+
+
+    function guess_fill(guess)
+        fill = ""
+        for (j, val) ∈ enumerate(guess)
+            fill *= "    guess[$(j-1)] = RCONST($(val));"
+            fill *= if (j < length(guess)) "\n" else "" end
+        end
+        return fill
+    end
+
+    cases = ""
+    for (i, guess) ∈ enumerate(alt_guesses)
+        cases *= """
+                   case $i:
+                 $(guess_fill(guess))
+                     flag = SUNTRUE;
+                     break;
+                 """
+        cases *= if (i < length(alt_guesses)) "\n" else "" end
+    end
+
+    f_guess * """
+
+    int _$(name)_altguess(sunrealtype* guess, sunindextype resets)
+    {
+      int flag;
+      switch (resets)
+      {
+      case 0:
+        _$(name)_guess(guess);
+        flag = SUNTRUE;
+        break;
+
+    $(cases)
+      default:
+        _$(name)_guess(guess);
+        flag = SUNFALSE;
+        break;
+      }
+      return flag;
+    }
+
+    """
+end
+
+function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString; filename::AbstractString=name, write::Bool=true, guesses=[zeros(num_conditions[order])])
     rhsnames = [:th]
     num_conds = num_conditions[order]
     # fill butcher table
@@ -145,6 +203,7 @@ function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString; f
         fname=name * "_btable_c",
         lhsname=:c, rhsnames=rhsnames
     )
+    fs = "const sunindextype _$(name)_btable_ns = $(B.s);\n"
     # compute order conditions
     @variables rhs[1:num_conds]
     conds_sym = [expand(ψ(B, t) - rhs[i]) for (i, t) ∈ enumerate(forest.keys[1:num_conds])]
@@ -161,16 +220,13 @@ function gen_c_lhs_func(B::ButcherTable, order::Integer, name::AbstractString; f
         fname=name * "_jac",
         lhsname=:phi_J, rhsnames=rhsnames
     )
-    f_guess = build_function(
-        [Num(g) for g ∈ guess]; target=SunTarget(),
-        fname=name * "_guess",
-        lhsname=:guess
-    )
-    behavior = write ? "w" : "a"
+    f_guess = gen_c_guessfuncs(guesses, name);
+    behavior = if (write) "w" else "a" end
     open("$filename.c", behavior) do file
         println(file, "/* $name */\n")
         println(file, func)
         println(file, func_j)
+        println(file, fs)
         println(file, fA)
         println(file, fb)
         println(file, fc)
@@ -215,14 +271,17 @@ sdirk534_emb = [59/48, -17/96, 225/32, -85/12, 0.]
 
 # θ methods
 
+
+# filename = "arkode_xbraid_theta_methods"
 # filename = "cfuncs/arkode_xbraid_theta_methods"
-filename = "../../../../sundials/src/arkode/xbraid/arkode_xbraid_theta_methods"
+# filename = "../../../../sundials/src/arkode/xbraid/arkode_xbraid_theta_methods"
+filename = "sundials/src/arkode/xbraid/arkode_xbraid_theta_methods"
 
 # can approximate up to 2nd order
 θesdirk2 = ButcherTable([0.0 0.0; 1-θ[1] θ[1]], [1-θ[1], θ[1]])
 θesdirk2_lhs!, θesdirk2_J!, θesdirk2_fill = gen_lhs_func(θesdirk2, 2)
-θesdirk2_guess = [1/2]
-gen_c_lhs_func(θesdirk2, 2, "theta_esdirk2"; filename=filename, write=true, guess=θesdirk2_guess)
+θesdirk2_guess = [[1/2]]
+gen_c_lhs_func(θesdirk2, 2, "theta_esdirk2"; filename=filename, write=true, guesses=θesdirk2_guess)
 #=
     0 │     0   0 
     1 │ 1 - θ   θ 
@@ -233,8 +292,8 @@ gen_c_lhs_func(θesdirk2, 2, "theta_esdirk2"; filename=filename, write=true, gue
 # can approximate up to 2nd order
 θsdirk2 = ButcherTable([θ[1] 0.0; 1-θ[1] θ[1]], [1-θ[1], θ[1]])
 θsdirk2_lhs!, θsdirk2_J!, θsdirk2_fill = gen_lhs_func(θsdirk2, 2)
-θsdirk2_guess = [1-√2/2]
-gen_c_lhs_func(θsdirk2, 2, "theta_sdirk2"; filename=filename, write=false, guess=θsdirk2_guess)
+θsdirk2_guess = [[1-√2/2]]
+gen_c_lhs_func(θsdirk2, 2, "theta_sdirk2"; filename=filename, write=false, guesses=θsdirk2_guess)
 #=
     θ │     θ   0 
     1 │ 1 - θ   θ 
@@ -245,8 +304,8 @@ gen_c_lhs_func(θsdirk2, 2, "theta_sdirk2"; filename=filename, write=false, gues
 # can approximate up to 3rd order
 θesdirk3 = ButcherTable([0. 0. 0.; θ[2]-θ[1] θ[1] 0; θ[3] (1.0-θ[3]-θ[1]) θ[1]], [θ[3], 1.0-θ[3]-θ[1], θ[1]])
 θesdirk3_lhs!, θesdirk3_J!, θesdirk3_fill = gen_lhs_func(θesdirk3, 3)
-θesdirk3_guess = [0.21132486540518713, 0.4226497308103742, 0.1056624327025936]
-gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3"; filename=filename, write=false, guess=θesdirk3_guess)
+θesdirk3_guess = [[0.21132486540518713, 0.4226497308103742, 0.1056624327025936]]
+gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3"; filename=filename, write=false, guesses=θesdirk3_guess)
 #=
    0  │      0            0   0
    θ₂ │ θ₂ - θ₁           θ₁  0
@@ -257,8 +316,9 @@ gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3"; filename=filename, write=false, gu
 
 θsdirk3 = ButcherTable([θ[1] 0.0 0.0; θ[2]-θ[1] θ[1] 0; (1.0-θ[3]-θ[1]) θ[3] θ[1]], [1.0-θ[3]-θ[1], θ[3], θ[1]])
 θsdirk3_lhs!, θsdirk3_J!, θsdirk3_fill = gen_lhs_func(θsdirk3, 3)
-θsdirk3_guess = [0.4358665215, 0.71793326075, -0.6443631706532353]
-gen_c_lhs_func(θsdirk3, 3, "theta_sdirk3"; filename=filename, write=false, guess=θsdirk3_guess)
+θsdirk3_guess = [[0.4358665215, 0.71793326075, -0.6443631706532353],
+                 [0.104356, 0.896898, 0.381277]]
+gen_c_lhs_func(θsdirk3, 3, "theta_sdirk3"; filename=filename, write=false, guesses=θsdirk3_guess)
 #=
    θ₁ │          θ₁  0   0
    θ₂ │     θ₂ - θ₁  θ₁  0
@@ -290,8 +350,8 @@ c4 = 2190473621641/2291448330983
     [1.0-θ[5]-θ[6]-θ[7]-θ[1], θ[5],  θ[6], θ[7], θ[1]]
 )
 θqesdirk4_lhs!, θqesdirk4_J!, θqesdirk4_fill = gen_lhs_func(θqesdirk4, 4)
-θqesdirk4_guess = [0.5065274202451187, -0.1264307159555053, 146.3451690077889, -305.0457869546525, -0.31902898451398665, 0.6494281724470768, 0.001108203953233309]
-gen_c_lhs_func(θqesdirk4, 4, "theta_qesdirk4"; filename=filename, write=false, guess=θqesdirk4_guess)
+θqesdirk4_guess = [[0.5065274202451187, -0.1264307159555053, 146.3451690077889, -305.0457869546525, -0.31902898451398665, 0.6494281724470768, 0.001108203953233309]]
+gen_c_lhs_func(θqesdirk4, 4, "theta_qesdirk4"; filename=filename, write=false, guesses=θqesdirk4_guess)
 
 # c2, c3, and c4 coefficients from Hairer and Wanner (1991) pg. 107
 #=
@@ -312,8 +372,8 @@ gen_c_lhs_func(θqesdirk4, 4, "theta_qesdirk4"; filename=filename, write=false, 
     [1-θ[5]-θ[6]-θ[7]-θ[1], θ[5],  θ[6], θ[7], θ[1]]
 )
 θsdirk4_lhs!, θsdirk4_J!, θsdirk4_fill = gen_lhs_func(θsdirk4, 4)
-θsdirk4_guess = [1/4, -1/25, -137/2720, 15/544, -49/48, 125/16, -85/12]
-gen_c_lhs_func(θsdirk4, 4, "theta_sdirk4"; filename=filename, write=false, guess=θsdirk4_guess)
+θsdirk4_guess = [[1/4, -1/25, -137/2720, 15/544, -49/48, 125/16, -85/12]]
+gen_c_lhs_func(θsdirk4, 4, "theta_sdirk4"; filename=filename, write=false, guesses=θsdirk4_guess)
 
 #=
   1/4   | 1/4           0  0    0   0
@@ -333,7 +393,7 @@ gen_c_lhs_func(θsdirk4, 4, "theta_sdirk4"; filename=filename, write=false, gues
 #     [1-1/4-θ[5]-θ[6]-θ[7], θ[5], θ[6], θ[7], 1/4]
 # )
 # θsdirk4_lhs!, θsdirk4_J!, θsdirk4_fill = gen_lhs_func(θsdirk4, 4)
-# θsdirk4_guess = [3/4, -1/25, -137/2720, 15/544, -49/48, 125/16, -85/12]
+# θsdirk4_guess = [[3/4, -1/25, -137/2720, 15/544, -49/48, 125/16, -85/12]]
 
 # θ Lobatto IIIC (4th order)
 θLIIIC = ButcherTable(
@@ -343,4 +403,4 @@ gen_c_lhs_func(θsdirk4, 4, "theta_sdirk4"; filename=filename, write=false, gues
      [1-θ[6]-θ[7], θ[6], θ[7]]
 )
 θLIIIC_lhs!, θLIIIC_J!, θLIIIC_fill = gen_lhs_func(θLIIIC, 4)
-θLIIIC_guess = [1/6, 1/6, 1/6, 5/12, -1/12, 1/6, 1/6]
+θLIIIC_guess = [[1/6, 1/6, 1/6, 5/12, -1/12, 1/6, 1/6]]
