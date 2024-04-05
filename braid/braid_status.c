@@ -395,6 +395,14 @@ braid_StatusGetTol(braid_Status status,
 }
 
 braid_Int
+braid_StatusGetSkip(braid_Status  status,
+                    braid_Int    *skip_ptr)
+{
+   *skip_ptr = _braid_CoreElt((braid_Core)status, skip);
+   return _braid_error_flag;
+}
+
+braid_Int
 braid_StatusGetRNorms(braid_Status status,
                       braid_Int   *nrequest_ptr,
                       braid_Real  *rnorms_ptr
@@ -777,12 +785,14 @@ _braid_SyncStatusInit(braid_Int            iter,
 ACCESSOR_FUNCTION_GET2_IN1(Sync, TIUL,         Int, Int, Int)
 ACCESSOR_FUNCTION_GET1_IN3(Sync, TimeValues,   Real*, Int, Int, Int)
 ACCESSOR_FUNCTION_GET1_IN2(Sync, Proc,         Int, Int, Int)
+ACCESSOR_FUNCTION_GET1_IN1(Sync, CFactor,      Int, Int)
 ACCESSOR_FUNCTION_GET1(Sync, Iter,             Int)
 ACCESSOR_FUNCTION_GET1(Sync, Level,            Int)
 ACCESSOR_FUNCTION_GET1(Sync, NLevels,          Int)
 ACCESSOR_FUNCTION_GET1(Sync, NRefine,          Int)
 ACCESSOR_FUNCTION_GET1(Sync, NTPoints,         Int)
 ACCESSOR_FUNCTION_GET1(Sync, Done,             Int)
+ACCESSOR_FUNCTION_GET1(Sync, Skip,             Int)
 ACCESSOR_FUNCTION_GET1(Sync, CallingFunction,  Int)
 ACCESSOR_FUNCTION_GET1(Sync, NumErrorEst,      Int)
 ACCESSOR_FUNCTION_GET1(Sync, AllErrorEst,      Real)
@@ -872,6 +882,7 @@ ACCESSOR_FUNCTION_GET1(Step, NTPoints,             Int)
 ACCESSOR_FUNCTION_GET1(Step, Tstop,                Real)
 ACCESSOR_FUNCTION_GET2(Step, TstartTstop,          Real, Real)
 ACCESSOR_FUNCTION_GET1(Step, Tol,                  Real)
+ACCESSOR_FUNCTION_GET1(Step, Skip,                 Int)
 ACCESSOR_FUNCTION_GET2(Step, RNorms,               Int,  Real)
 ACCESSOR_FUNCTION_GET1(Step, OldFineTolx,          Real)
 ACCESSOR_FUNCTION_SET1(Step, OldFineTolx,          Real)

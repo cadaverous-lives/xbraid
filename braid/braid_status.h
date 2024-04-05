@@ -416,6 +416,14 @@ braid_StatusGetTol(braid_Status status,                    /**< structure contai
                    );
 
 /**
+ * Return boolean, true if the first downcycle was skipped, false if not
+*/
+braid_Int
+braid_StatusGetSkip(braid_Status  status,                  /**< structure containing current simulation info */
+                    braid_Int    *skip_ptr                 /**< output, XBraid skip downcycle flag  */
+                    );
+
+/**
  * Return the current XBraid residual history.  If *nrequest_ptr*
  * is negative, return the last *nrequest_ptr* residual norms.  If
  * positive, return the first *nrequest_ptr* residual norms.  Upon
@@ -652,6 +660,7 @@ ACCESSOR_HEADER_GET1_IN1(Access, BasisVec, Vector, Int)
 ACCESSOR_HEADER_GET2_IN1(Sync, TIUL,         Int, Int, Int)
 ACCESSOR_HEADER_GET1_IN3(Sync, TimeValues,   Real*, Int, Int, Int)
 ACCESSOR_HEADER_GET1_IN2(Sync, Proc,         Int, Int, Int)
+ACCESSOR_HEADER_GET1_IN1(Sync, CFactor,      Int, Int)
 ACCESSOR_HEADER_GET1(Sync, Iter,             Int)
 ACCESSOR_HEADER_GET1(Sync, Level,            Int)
 ACCESSOR_HEADER_GET1(Sync, NLevels,          Int)
@@ -659,6 +668,7 @@ ACCESSOR_HEADER_GET1(Sync, NRefine,          Int)
 ACCESSOR_HEADER_GET1(Sync, NTPoints,         Int)
 ACCESSOR_HEADER_GET1(Sync, Done,             Int)
 ACCESSOR_HEADER_GET1(Sync, CallingFunction,  Int)
+ACCESSOR_HEADER_GET1(Sync, Skip,             Int)
 ACCESSOR_HEADER_GET1(Sync, NumErrorEst,      Int)
 ACCESSOR_HEADER_GET1(Sync, AllErrorEst,      Real)
 ACCESSOR_HEADER_GET1(Sync, TComm,            MPI_Comm)
@@ -695,6 +705,7 @@ ACCESSOR_HEADER_GET1(Step, NTPoints,           Int)
 ACCESSOR_HEADER_GET1(Step, Tstop,              Real)
 ACCESSOR_HEADER_GET2(Step, TstartTstop,        Real, Real)
 ACCESSOR_HEADER_GET1(Step, Tol,                Real)
+ACCESSOR_HEADER_GET1(Step, Skip,               Int)
 ACCESSOR_HEADER_GET2(Step, RNorms,             Int,  Real)
 ACCESSOR_HEADER_GET1(Step, OldFineTolx,        Real)
 ACCESSOR_HEADER_SET1(Step, OldFineTolx,        Real)
