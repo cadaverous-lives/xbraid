@@ -134,10 +134,10 @@ using .Status, .Wrappers
 
 function postInitPrecompile(app::BraidApp)
     #= 
-    	# This is a hack to make sure every processor knows how big the user's vector will be.
-    	# We can also take this time to precompile the user's step function so it doesn't happen
-    	# in serial on the coarse grid.
-    	=#
+    # This is a hack to make sure every processor knows how big the user's vector will be.
+    # We can also take this time to precompile the user's step function so it doesn't happen
+    # in serial on the coarse grid.
+    =#
     GC.enable(false) # disable garbage collection
     app_ptr = pointer_from_objref(app)::Ptr{Cvoid}
     pp = malloc_null_double_ptr(Cvoid)
@@ -450,7 +450,7 @@ function setNFMGVcyc(core::BraidCore, nfmg_Vcyc::Integer)
     end
 end
 
-function setStorage(core::BraidCore, storage::Bool)
+function setStorage(core::BraidCore, storage::Union{Bool, Integer})
     GC.@preserve core begin
         @ccall libbraid.braid_SetStorage(core._braid_core::Ptr{Cvoid}, storage::Cint)::Cint
     end

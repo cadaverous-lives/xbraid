@@ -1,7 +1,9 @@
 using DataStructures, PrettyTables
 using Symbolics, NLsolve
+using LinearAlgebra
 
 include("build_function_sundials.jl")
+Symbolics.limit(expr::Num, var::Num, h, side...) = Symbolics.limit(Symbolics.value(expr), Symbolics.value(var), h, side...)
 
 struct ButcherTable
     A::AbstractMatrix
@@ -14,7 +16,7 @@ ButcherTable(A, b, c) = ButcherTable(A, b, c, length(b))
 function ButcherTable(A::Vector{<:Real}, b::Vector{<:Real}, c::Vector{<:Real}, s::Integer)
     return ButcherTable(reshape(A, s, s), b, c, s)
 end
-function Base.show(io::IO, bt::ButcherTable)
+function show_BTable(io::IO, bt::ButcherTable)
     print(io, "ButcherTable: \n")
     # pretty table
     b = [1.0; bt.b]
@@ -25,6 +27,29 @@ function Base.show(io::IO, bt::ButcherTable)
         body_hlines=[bt.s],
         vlines=[:begin, 1, :end]
     )
+end
+show_BTable(bt::ButcherTable) = show_BTable(stdout, bt)
+
+function stab_func(B::ButcherTable)
+    r(z) = det(I(B.s) - z.*B.A + z.*(ones(Int, B.s)*B.b')) / det(I(B.s) - z.*B.A)
+end
+
+function MGRIT_conv(ϕ, ϕc, m, z)
+    abs(ϕ(z)^m - ϕc(m*z)) /abs(1 - abs(ϕc(m*z)))
+end
+
+function MGRIT_fcf_conv(ϕ, ϕc, m, z)
+    abs(ϕ(z))^m * abs(ϕ(z)^m - ϕc(m*z)) /abs(1 - abs(ϕc(m*z)))
+end
+
+function MGRIT_conv(B::ButcherTable, m, z)
+    ϕ = stab_func(B)
+    MGRIT_conv(ϕ, ϕ, m, z)
+end
+
+function MGRIT_fcf_conv(B::ButcherTable, m, z)
+    ϕ = stab_func(B)
+    MGRIT_fcf_conv(ϕ, ϕ, m, z)
 end
 
 forest = OrderedDict(
@@ -87,20 +112,59 @@ num_conditions = [0, 1, 3, 7, 16]
 
 ψ(B::ButcherTable, tree::Expr) = elem_weights[forest[tree]](B.A, B.b, B.c)
 
-@variables θ[1:15]
+@variables θ[1:16]
+θ = collect(θ)
+θsym = [Symbolics.variable(String(θ[i].val.arguments[1].name)*string(i)) for i ∈ 1:16]
 
-function gen_lhs_func(B::ButcherTable, order::Integer)
+function gen_lhs_func(B::ButcherTable, order::Integer; numθ=0)
     num_conds = num_conditions[order]
-    fA, fb, fc = [eval(build_function(syms, collect(θ[1:num_conds]); checkbounds=true)[1]) for syms ∈ (B.A, B.b, B.c)]
+    if numθ <= num_conds
+        numθ = num_conds
+    end
+    fA, fb, fc = [eval(build_function(syms, collect(θ[1:numθ]); checkbounds=true)[1]) for syms ∈ (B.A, B.b, B.c)]
     conds_sym = [expand(ψ(B, t)) for t ∈ forest.keys[1:num_conds]]
     conds_jac = Symbolics.jacobian(conds_sym, θ[1:num_conds])
-    f = eval(build_function(conds_sym, collect(θ[1:num_conds]); checkbounds=true)[2])
-    J = eval(build_function(conds_jac, collect(θ[1:num_conds]); checkbounds=true)[2])
+    f = eval(build_function(conds_sym, collect(θ[1:numθ]); checkbounds=true)[2])
+    J = eval(build_function(conds_jac, collect(θ[1:numθ]); checkbounds=true)[2])
     function fill(θ::AbstractVector)
-        @assert length(θ) == num_conds
+        @assert length(θ) == numθ
         ButcherTable(fA(θ), fb(θ), fc(θ), B.s)
     end
     return f, J, fill
+end
+
+function limit_hack(expr::Num, var::Num, h, side...)
+    safe_expr = substitute(expr, Dict(collect(θ) .=> θsym))
+    lim = limit(safe_expr, var, h, side...)
+    substitute(lim, Dict(θsym .=> θ))
+end
+
+function gen_opt_func(B::ButcherTable, order::Integer, numθ::Integer; inplace::Bool=true)
+    # find θ's that minimize the truncation error while also satisfying
+    # order conditions up to *order* and L-stability condition
+    # min ½|| c_{p+1} ||² st C_{p} = 0, and ϕ(∞) = 0
+    # L(t, θ) = ½|| c_{p+1}(θ) ||² + λᵀC_{p}(θ)
+    # L_λ = C_{p}(θ) = 0
+    # L_θ = Jᵀ_{p+1} c_{p+1} + Jᵀ_p λ
+    num_conds = num_conditions[order]
+    num_cextr = num_conditions[order+1]
+    @assert numθ >= num_conds + 1
+    @variables λ[1:num_conds+1], r[1:num_cextr], z
+
+    ftype = if inplace 2 else 1 end
+
+    cond  = [simplify(expand(ψ(B, t))) for t ∈ forest.keys[1:num_conds]]
+    extr = [simplify(expand(ψ(B, t))) for t ∈ forest.keys[num_conds+1:num_cextr]]
+    stab  = limit_hack(simplify(stab_func(B)(z)), z, Inf)
+    cond  .-= collect(r[1:num_conds])
+    extr .-= collect(r[num_conds+1:num_cextr])
+
+    L = 1//2 * sum((extr).^2) + dot(λ, [cond; stab])
+    kkt = [Symbolics.gradient(L, collect(θ[1:numθ])); cond; stab]
+    J   = Symbolics.jacobian(kkt, [θ[1:numθ]; λ])
+    f_kkt = eval(build_function(kkt, collect(θ[1:numθ]), collect(λ), collect(r); checkbounds=true)[ftype])
+    f_J   = eval(build_function(J, collect(θ[1:numθ]), collect(λ), collect(r); checkbounds=true)[ftype])
+    return f_kkt, f_J
 end
 
 function solve_order_conditions(f!::Function, J!::Function, fill::Function, order::Integer, rhs::Vector{<:Real};
@@ -120,6 +184,33 @@ function solve_order_conditions(f!::Function, J!::Function, fill::Function, orde
         result = nlsolve(g!, J!, guess; method=:newton, ftol=1e-12, xtol=1e-12, iterations=1000)
     end
     fill(result.zero)
+end
+
+function solve_opt_conditions(kkt!::Function, J!::Function, fill::Function, order::Integer, numθ::Integer, rhs::Vector{<:Real};
+                              guess=zeros(num_conditions[order]), method=:trust_region, info=false)
+    @assert length(rhs) == num_conditions[order+1]
+    @assert length(guess) == numθ
+    function g!(G, x)
+        θ = x[1:numθ]
+        λ = x[numθ+1:end]
+        kkt!(G, θ, λ, rhs)
+    end
+    function jac!(J, x)
+        θ = x[1:numθ]
+        λ = x[numθ+1:end]
+        J!(J, θ, λ, rhs)
+    end
+    result = nlsolve(g!, jac!, [guess; zeros(num_conditions[order]+1)]; method=method, ftol=1e-12, xtol=1e-12, iterations=10000)
+    if result.f_converged && info
+        @info result
+    elseif !result.f_converged
+        @warn "Optimality conditions solver not converged"
+        @info "Ψ: $(rhs')"
+        @info result
+        result = nlsolve(g!, jac!, [guess; zeros(num_conditions[order]+1)]; method=:newton, ftol=1e-12, xtol=1e-12, iterations=10000)
+        @info result
+    end
+    fill(result.zero[1:numθ])
 end
 
 function gen_c_guessfuncs(guesses::AbstractVector, name)
@@ -243,18 +334,18 @@ x = 0.4358665215
 sdirk33 = ButcherTable([x 0.0 0.0; (1-x)/2 x 0; (-3.0x^2/2 + 4.0x - 1/4) (3x^2/2 - 5.0x + 5/4) x], [(-3.0x^2/2 + 4.0x - 1/4), (3.0x^2/2 - 5.0x + 5/4), x])
 
 #esdirk423
-diag = 1767732205903 / 4055673282236
+γ = 1767732205903 / 4055673282236
 A3 = zeros(4, 4)
-A3[2, 1] = diag
-A3[2, 2] = diag
+A3[2, 1] = γ
+A3[2, 2] = γ
 A3[3, 1] = 2746238789719 / 10658868560708
 A3[3, 2] = -640167445237 / 6845629431997
-A3[3, 3] = diag
+A3[3, 3] = γ
 A3[4, 1] = 1471266399579 / 7840856788654
 A3[4, 2] = -4482444167858 / 7529755066697
 A3[4, 3] = 11266239266428 / 11593286722821
-A3[4, 4] = diag
-esdirk3 = ButcherTable(A3, A3[4, :], [0, 2diag, 3 / 5, 1])
+A3[4, 4] = γ
+esdirk3 = ButcherTable(A3, A3[4, :], [0, 2γ, 3 / 5, 1])
 esdirk3_emb = [2756255671327/12835298489170, -10771552573575/22201958757719, 9247589265047/10645013368117, 2193209047091/5459859503100]
 
 #sdirk534
@@ -311,7 +402,43 @@ gen_c_lhs_func(θesdirk3, 3, "theta_esdirk3"; filename=filename, write=false, gu
    θ₂ │ θ₂ - θ₁           θ₁  0
    1  │      θ₃  1 - θ₃ - θ₁  θ₁
 ──────┼──────────────────────────
-   2  │      θ₃  1 - θ₃ - θ₁  θ₁
+   3  │      θ₃  1 - θ₃ - θ₁  θ₁
+=#
+
+# θesdirk43 = ButcherTable(
+#     [0.       0.         0.         0.;
+#      θ[2]     θ[1]       0.         0.;
+#      θ[3]     θ[4]       θ[1]       0.;
+#       1-θ[5]  θ[5]-θ[6]  θ[6]-θ[1]  θ[1]], 
+#      [1-θ[5], θ[5]-θ[6], θ[6]-θ[1], θ[1]])
+# Possible solutions from solving constrained optimization problem:
+# [0.24126144852070525, 0.8215446791390288, 0.2743965617184559, -0.023673448714918593, 0.8345331556869372, 0.8925932767506815],
+# [0.15898389998867657, -0.07902296940017998, -0.2883802028435871, 0.6541767909539795, 0.9186515814895108, 0.7890649306633442],
+# [0.15898389998867646, 0.3522806219469959, 1.7208001828353714, -1.368519560888378, 0.8259891103643543, 0.11187828148694212]
+
+# 1.4655 0.768 0.378 <- values from hand tuning MGRIT convergence
+α1 = 1.4655
+α2 = 0.768
+α3 = 0.378
+θesdirk43 = ButcherTable(
+    [0.      0.        0.       0.;
+     α2-θ[1] θ[1]      0.       0.;
+     α3-θ[2] θ[2]-θ[1] θ[1]     0.;
+     1-θ[3]  θ[3]-α1   α1-θ[1]  θ[1]], 
+    [1-θ[3], θ[3]-α1,  α1-θ[1], θ[1]])
+θesdirk43_lhs!, θesdirk43_J!, θesdirk43_fill = gen_lhs_func(θesdirk43, 3)
+θesdirk43_guess = [
+    [1767732205903/4055673282236, 1767732205903/4055673282236, 2746238789719/10658868560708],
+    [0.4362975330768013, 0.3357974919586735, 1.0418853312841532]
+    ]
+gen_c_lhs_func(θesdirk43, 3, "theta_esdirk43"; filename=filename, write=false, guesses=θesdirk43_guess)
+#=
+   0       │ 0    0     0     0
+   θ₁+θ₂   │ θ₂   θ₁    0     0
+   θ₁+θ₃+θ₄│ θ₃   θ₄    θ₁    0
+   1       │ 1-θ₅ θ₅-θ₆ θ₆-θ₁ θ₁
+───────────┼─────────────────────────────
+   3       │ 1-θ₅ θ₅-θ₆ θ₆-θ₁ θ₁
 =#
 
 θsdirk3 = ButcherTable([θ[1] 0.0 0.0; θ[2]-θ[1] θ[1] 0; (1.0-θ[3]-θ[1]) θ[3] θ[1]], [1.0-θ[3]-θ[1], θ[3], θ[1]])
@@ -323,8 +450,8 @@ gen_c_lhs_func(θsdirk3, 3, "theta_sdirk3"; filename=filename, write=false, gues
    θ₁ │          θ₁  0   0
    θ₂ │     θ₂ - θ₁  θ₁  0
    1  │ 1 - θ₃ - θ₁  θ₃  θ₁
-──────┼──────────────────────────
-   2  │ 1 - θ₃ - θ₁  θ₃  θ₁
+──────┼─────────────────────
+   3  │ 1 - θ₃ - θ₁  θ₃  θ₁
 =#
 
 # can approximate up to 4th order
@@ -363,16 +490,39 @@ gen_c_lhs_func(θqesdirk4, 4, "theta_qesdirk4"; filename=filename, write=false, 
 ────────┼─────────────────────────────
   1     | 1-θ₁-θ₅-θ₆-θ₇ θ₅ θ₆ θ₇ θ₁
 =#
+θsdirk4_free = ButcherTable(
+    [θ[1]                   0      0     0     0;
+     θ[8]-θ[1]              θ[1]   0     0     0;
+     θ[9]-θ[1]-θ[2]         θ[2]   θ[1]  0     0;
+     θ[10]-θ[1]-θ[3]-θ[4]   θ[3]   θ[4]  θ[1]  0;
+     1-θ[5]-θ[6]-θ[7]-θ[1]  θ[5]   θ[6]  θ[7]  θ[1]],
+    [1-θ[5]-θ[6]-θ[7]-θ[1], θ[5],  θ[6], θ[7], θ[1]]
+)
+# θsdirk4 = ButcherTable(
+#     [θ[1]                     0    0     0     0;
+#      3/4-θ[1]               θ[1]   0     0     0;
+#      11/20-θ[1]-θ[2]        θ[2]   θ[1]  0     0;
+#      1/2-θ[1]-θ[3]-θ[4]     θ[3]   θ[4]  θ[1]  0;
+#      1-θ[5]-θ[6]-θ[7]-θ[1]  θ[5]   θ[6]  θ[7]  θ[1]],
+#     [1-θ[5]-θ[6]-θ[7]-θ[1], θ[5],  θ[6], θ[7], θ[1]]
+# )
+
+# 0.757 0.572 0.234 seem to be good constants for advection...
 θsdirk4 = ButcherTable(
-    [θ[1]                     0    0     0     0;
-     3/4-θ[1]               θ[1]   0     0     0;
-     11/20-θ[1]-θ[2]        θ[2]   θ[1]  0     0;
-     1/2-θ[1]-θ[3]-θ[4]     θ[3]   θ[4]  θ[1]  0;
+    [θ[1]                   0      0     0     0;
+     0.757-θ[1]             θ[1]   0     0     0;
+     0.572-θ[1]-θ[2]        θ[2]   θ[1]  0     0;
+     0.234-θ[1]-θ[3]-θ[4]   θ[3]   θ[4]  θ[1]  0;
      1-θ[5]-θ[6]-θ[7]-θ[1]  θ[5]   θ[6]  θ[7]  θ[1]],
     [1-θ[5]-θ[6]-θ[7]-θ[1], θ[5],  θ[6], θ[7], θ[1]]
 )
 θsdirk4_lhs!, θsdirk4_J!, θsdirk4_fill = gen_lhs_func(θsdirk4, 4)
-θsdirk4_guess = [[1/4, -1/25, -137/2720, 15/544, -49/48, 125/16, -85/12]]
+θsdirk4_guess = [
+    [0.2780787351155658, -0.062252697221817865, 0.060267864764432834, -0.08371700471114331, -0.7640793347677586, 1.8115844527853433, 3.2977134950712017],
+    [0.29853962542090556, -0.05201351218882994, 0.06924210330453612, -0.12267418821469801, -0.7989440674058907, 1.9311364975607757, 2.6302981364383395],
+    [0.3301588436719133, -0.006062069278850258, 0.06297006623038928, -0.20158714022850135, -1.0283564480934906, 2.607620886448648, 2.5270480699672824],
+    [0.38753450174226617, 0.07875590309267486, -0.025338797499929695, -0.3830337568616932, -1.758095274336009, 5.238084697035685, 2.8760725795882935]
+]
 gen_c_lhs_func(θsdirk4, 4, "theta_sdirk4"; filename=filename, write=false, guesses=θsdirk4_guess)
 
 #=
